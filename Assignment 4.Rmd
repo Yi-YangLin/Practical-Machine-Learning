@@ -1,0 +1,149 @@
+# Practical Machine Learning Course Project - Prediction Assignment
+
+## Background
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this Write-up, our goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants to predict the classes.
+
+
+## Data Examination
+
+Our first step will be loading the libraries and the data.
+```{r}
+library(caret)
+library(randomForest)
+library(ggplot2)
+library(corrplot)
+
+setwd('C:\\Users\\User\\Desktop\\Certifications\\R\\Practical Machine Learning\\Assignment 4')
+
+trainset <- read.csv("pml-training.csv", header = TRUE)
+testset <- read.csv("pml-testing.csv", header = TRUE)
+
+```
+
+And then we can examine the data structures, variable names, etc.
+```{r}
+head(trainset)
+names(trainset)
+dim(trainset)
+str(trainset)
+```
+
+It shows there are 19622 observations out of 159 variables and 1 label.
+
+We can also examine the label levels and its proportion.
+```{r}
+levels(trainset$classe)
+table(trainset$classe)
+prop.table(table(trainset$classe))
+```
+
+it shows there are about 28% level "A" in the label, which is also the greatest one. But overall, it's still quite evenly distributed, and we can call it a balanced data.
+
+
+## Data pre-processing
+
+Now we select variables whose name include specific terms and the label.
+```{r}
+filter = grepl("belt|arm|dumbbell|classe", names(trainset))
+trainset = trainset[, filter]
+testset = testset[, filter]
+```
+
+Next, We remove variables with all NA/Null value.
+```{r}
+is_data  <- apply(!is.na(trainset), 2, sum) > 19621
+trainset <- trainset[, is_data]
+testset  <- testset[, is_data]
+```
+
+Besides, we also examine whether variables with only single value exist and remove the vairiables with nzv = TRUE.
+```{r}
+zero.var = nearZeroVar(trainset, saveMetrics=TRUE)
+trainset <- trainset[,-c(5:13,36:41,45:53,67:75)]
+testset <- testset[,-c(5:13,36:41,45:53,67:75)]
+```
+
+
+We also need to set the seed and split data by 0.7 for cross validation.
+```{r}
+set.seed(1000)
+DataPart <- createDataPartition(y=trainset$classe, p=0.70, list=FALSE)
+train <- trainset[DataPart,]
+valid <- trainset[-DataPart,]
+```
+
+
+## Variable selection
+
+In this projct, we will use random forest algorithm to do the prediction. As a result, we use varImpPlot to the examine the importance of variables by the plot which shows the ability to variance explanations.
+```{r}
+fitModel <- randomForest(classe~., data=train, importance=TRUE, ntree=100)
+varImpPlot(fitModel)
+```
+
+To prevent from correlation problem, we choose and examine relationship between Top 10 variables 
+```{r}
+correl = cor(train[,c("yaw_belt","pitch_belt","roll_belt","magnet_dumbbell_y","magnet_forearm_z","magnet_dumbbell_z","pitch_forearm","gyros_dumbbell_z","gyros_forearm_y","gyros_arm_y")])
+
+diag(correl) <- 0
+which(abs(correl)>0.75, arr.ind=TRUE)
+```
+
+As what the result shows, there are over 75% correlation between "roll_belt", "yaw_belt" and "gyros_forearm_y", "gyros_dumbbell_z".
+
+Thus, we replaced correlated variables by the 11th and 13th variables.
+```{r}
+correl = cor(train[,c("yaw_belt","pitch_belt","magnet_dumbbell_y","magnet_forearm_z","magnet_dumbbell_z","pitch_forearm","gyros_dumbbell_z","gyros_arm_y","accel_dumbbell_y","gyros_forearm_x")])
+
+diag(correl) <- 0
+which(abs(correl)>0.75, arr.ind=TRUE)
+```
+
+There is no significant correlated variables any more.
+
+
+## Model Building and cross validation
+
+Now we can build the model based on the variables listed above.
+```{r}
+bestfitmodel <- train(classe~yaw_belt+pitch_belt+magnet_dumbbell_y+magnet_forearm_z+magnet_dumbbell_z+pitch_forearm+gyros_dumbbell_z+gyros_arm_y+accel_dumbbell_y+gyros_forearm_x,
+                      data=train,
+                      method="rf",
+                      trControl=trainControl(method="cv",number=2),
+                      prox=TRUE,
+                      verbose=TRUE,
+                      allowParallel=TRUE)
+```
+
+We can also save the model for convenience.
+```{r}
+saveRDS(bestfitmodel, "modelRF.Rds")
+bestfitmodel <- readRDS("modelRF.Rds")
+```
+
+Now we do the cross validation by predicting and examine the confusion Matrix of valid set.
+```{r}
+predictions <- predict(bestfitmodel, newdata=valid)
+confusionMa <- confusionMatrix(predictions, valid$classe)
+confusionMa
+```
+
+From the confusion Matrix, we can see that the accuracy is 99%, which is very high and the expected out of sample error rate = 1- 99% = 1%, which meet our anticipation which is less or equal to 1%.
+
+
+## Final prediction
+
+The below is the code of prediction to our test set:
+```{r}
+predictions <- predict(bestfitmodel, newdata=testset)
+testset$classe <- predictions
+
+submit <- data.frame(problem_id = testset$problem_id, classe = predictions)
+write.csv(submit, file = "submission.csv", row.names = FALSE)
+```
+
+After submission, it shows 20/20 accuracy of prediction. We successfully predicted all 20 different cases.
+
