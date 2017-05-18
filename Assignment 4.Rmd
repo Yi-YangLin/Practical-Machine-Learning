@@ -83,6 +83,7 @@ In this projct, we will use random forest algorithm to do the prediction. As a r
 fitModel <- randomForest(classe~., data=train, importance=TRUE, ntree=100)
 varImpPlot(fitModel)
 ```
+![plot of chunk unnamed-chunk-2](figure/unnamed-chunk-1.png) 
 
 To prevent from correlation problem, we choose and examine relationship between Top 10 variables 
 ```{r}
